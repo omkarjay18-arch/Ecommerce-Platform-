@@ -1,87 +1,56 @@
-const mongoose = require('mongoose');
+const express = require('express');
+const {
+   getAllProducts,
+   getAdminProducts,
+   getProductDetails,
+   createProductReview,
+   getProductReviews,
+   deleteReview,
+   addToWishList,
+   removeFromWishList,
+   getAllWishlistProducts,
+   summerizeProductReviews,
+   updateProduct,
+   searchProducts,
+   getAutocompleteSuggestions
+} = require('../controllers/product');
 
-mongoose.set('strictQuery', false);
+const { isAuthUser, authRoles } = require('../middleware/auth');
 
-const productSchema = mongoose.Schema({
-    _id: String,
-    name: {
-        type: String,
-        required: [true, 'Please Enter product Name'],
-        trim: true
-    },
-    description: {
-        type: String,
-        required: [true, 'Please Enter product description']
-    },
-    price: {
-        type: Number,
-        required: [true, 'Please Enter product price'],
-        maxLength: [6, "Price can't exceed 8 figures"]
-    },
-    ratings: {
-        type: Number,
-        default: 0
-    },
-    images: [
-        {
-            _id: String,
-            url: {
-                type: String,
-                required: true
-            }
-        }
-    ],
-    user: {
-        type: Number,
-        ref: 'User',
-        required: true
-    },
-    category: {
-        type: String,
-        required: [true, 'Please Enter product category']
-    },
-    Stock: {
-        type: Number,
-        required: [true, 'Please Enter product stock']
-    },
-    numOfReviews: {
-        type: Number,
-        default: 0
-    },
-    reviews: [
-        {
-            _id: String,
-            user: {
-                type: Number,
-                ref: 'User',
-                required: true
-            },
-            name: {
-                type: String,
-                required: true
-            },
-            rating: {
-                type: Number,
-                required: true
-            },
-            comment: {
-                type: String,
-                required: true
-            }
-        }
-    ],
-    aiSummary: {
-      type: String,
-      default: '',
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    embedding: {
-        type: [Number],
-        select: false
-    }
-});
+const router = express.Router();
 
-module.exports = mongoose.model('Product', productSchema);
+router.get('/products/autocomplete', getAutocompleteSuggestions);
+
+router.route('/products').get(getAllProducts);
+
+router.route('/wishlist').get(isAuthUser, getAllWishlistProducts);
+
+router
+    .route('/wishlist/:id')
+    .post(isAuthUser, addToWishList)
+    .delete(isAuthUser, removeFromWishList);
+
+router.route('/admin/update/product/:id').put(isAuthUser, authRoles('admin'), updateProduct);
+
+router
+    .route('/admin/products')
+    .get(isAuthUser, authRoles('admin'), getAdminProducts);
+
+router.route('/product/:id').get(getProductDetails);
+
+router.route('/review').post(isAuthUser, createProductReview);
+
+router
+    .route('/reviews')
+    .get(getProductReviews);
+
+router.route('/review/:reviewId').delete(isAuthUser, deleteReview);
+
+router.route('/:id/summerize-reviews').post(isAuthUser, authRoles('admin'), summerizeProductReviews);
+
+router.route("/search").get(searchProducts);
+
+// router.route('/admin/product/:productId').put(isAuthUser, authRoles('admin'), upload.array('product', 5), updateProduct);
+
+module.exports = router;
+ 

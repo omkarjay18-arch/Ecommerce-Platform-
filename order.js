@@ -1,162 +1,44 @@
-const mongoose = require('mongoose');
+const express = require('express');
+const {
+   newOrder,
+   getSingleOrder,
+   myOrders,
+   getAllOrders,
+   updateOrder,
+   deleteOrder,
+   reorder,
+} = require('../controllers/order');
+const router = express.Router();
 
-mongoose.set('strictQuery', false);
+const { isAuthUser, authRoles } = require('../middleware/auth');
+const { requestReturn, getAllReturns } = require('../controllers/return');
+const { initiateRefund, updateRefundStatus, getAllRefunds } = require('../controllers/refund');
 
-const orderSchema = new mongoose.Schema({
-    _id: String,
-    shippingInfo: {
-        address: {
-            type: String,
-            required: true
-        },
-        city: {
-            type: String,
-            required: true
-        },
-        state: {
-            type: String,
-            required: true
-        },
-        country: {
-            type: String,
-            required: true
-        },
-        pinCode: {
-            type: Number,
-            required: true
-        },
-        phoneNumber: {
-            type: Number,
-            required: true
-        }
-    },
-    orderItems: [
-        {
-            name: {
-                type: String,
-                required: true
-            },
-            price: {
-                type: Number,
-                required: true
-            },
-            quantity: {
-                type: Number,
-                required: true
-            },
-            images: [
-                {
-                    url: {
-                        type: String,
-                        required: true
-                    }
-                }
-            ],
-            product: {
-                type: Number,
-                ref: 'Product',
-                required: true
-            }
-        }
-    ],
-    user: {
-        type: Number,
-        ref: 'User',
-        required: true
-    },
-    paymentInfo: {
-        id: {
-            type: String,
-            required: true
-        },
-        status: {
-            type: String,
-            required: true
-        }
-    },
-    paidAt: {
-        type: Date,
-        required: true
-    },
-    itemsPrice: {
-        type: Number,
-        default: 0,
-        required: true
-    },
-    shippingPrice: {
-        type: Number,
-        default: 0,
-        required: true
-    },
-    totalPrice: {
-        type: Number,
-        default: 0,
-        required: true
-    },
-    orderStatus: {
-        type: String,
-        required: true,
-        default: 'Processing'
-    },
-    DeliveredAt: Date,
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    return: [
-        {
-            type: Number,
-            ref: 'Return'
-        }
-    ],
-    refund: [
-        {
-            type: Number,
-            ref: 'Refund',
-            required: true
-        }
-    ],
+router.route('/order/new').post(isAuthUser, newOrder);
 
-    // Refund details
-    isReturned: {
-        type: Boolean,
-        default: false
-    },
-    returnRequestedAt: {
-        type: Date
-    },
-    isRefunded: {
-        type: Boolean,
-        default: false
-    },
-    refundRequestedAt: {
-        type: Date
-    },
-    refundStatus: {
-        type: String,
-        default: 'Not Requested'
-    },
-    refundInfo: {
-        id: String,
-        amount: Number,
-        status: String,
-        createdAt: Date
-    },
-    refundedAt: {
-        type: Date
-    },
-    // Coupon details
-    couponUsed: {
-        type: Boolean,
-        default: false
-    },
-    couponCode: {
-        type: String
-    },
-    discountedAmount: {
-        type: Number,
-        default: 0
-    }
-});
+router.route('/order/:id').get(isAuthUser, getSingleOrder);
 
-module.exports = mongoose.model('Order', orderSchema);
+router.route('/orders/me').get(isAuthUser, myOrders);
+
+router.route('/order/:id/return').post(isAuthUser, requestReturn);
+
+router.route('/admin/orders').get(isAuthUser, authRoles('admin'), getAllOrders);
+
+router
+    .route('/admin/order/:id')
+    .put(isAuthUser, authRoles('admin'), updateOrder)
+    .delete(isAuthUser, authRoles('admin'), deleteOrder);
+
+router
+    .route('/admin/order/:id/refund')
+    .post(isAuthUser, authRoles('admin'), initiateRefund);
+
+router.route('/admin/order/:orderId/refund/:refundId/status').patch(isAuthUser, authRoles('admin'), updateRefundStatus);
+
+router.route('/reorder').post(isAuthUser, reorder);
+
+router.route('/admin/returns').get(isAuthUser, authRoles('admin'), getAllReturns);
+
+router.route('/admin/refunds').get(isAuthUser, authRoles('admin'), getAllRefunds);
+
+module.exports = router;

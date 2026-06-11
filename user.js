@@ -1,147 +1,73 @@
-const mongoose = require('mongoose');
-const validator = require('validator');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-mongoose.set('strictQuery', false);
+const express = require('express');
+const {
+   registerUser,
+   loginUser,
+   logout,
+   forgotPassword,
+   resetPassword,
+   getUserDetails,
+   updatePassword,
+   getAllUsers,
+   getSingleUser,
+   updateUserRole,
+   googleLogin,
+   sendLoginOtp,
+   verifyLoginOtp,
+   setupTwoFactorAuth,
+   verifyTwoFactorAuth,
+   disableTwoFactorAuth,
+   validateTfaToken,
+} = require('../controllers/user');
 
-const userSchema = new mongoose.Schema({
-    _id: String,
-    name: {
-        type: String,
-        required: [true, 'Please Enter Your Name'],
-        maxLength: [30, 'Name cannot exceed 30 characters'],
-        minLength: [2, 'Name must be atleast of 2 characters long']
-    },
-    email: {
-        type: String,
-        required: [true, 'Please Enter Your Email'],
-        unique: true,
-        validate: [validator.isEmail, 'Please Enter a valid Email']
-    },
-    password: {
-        type: String,
-        minLength: [6, 'Password must be atleast of 6 characters long'],
-        select: false
-    },
-    whatsappNumber: {
-        type: Number,
-        unique: [true, 'This number is already in use by another account!']
-    },
-    authProvider: {
-        type: String,
-        enum: ['local', 'google'],
-        default: 'local'
-    },
-    avatar: {
-        type: String,
-        required: true
-    },
-    wishlist: {
-        type: [
-            {
-                _id: String,
-                name: {
-                    type: String,
-                    required: [true, 'Please Enter product Name'],
-                    trim: true
-                },
-                description: {
-                    type: String,
-                    required: [true, 'Please Enter product description']
-                },
-                price: {
-                    type: Number,
-                    required: [true, 'Please Enter product price'],
-                    maxLength: [6, "Price can't exceed 6 figures"]
-                },
-                ratings: {
-                    type: Number,
-                    default: 0
-                },
-                images: [
-                    {
-                        _id: String,
-                        url: {
-                            type: String,
-                            required: true
-                        }
-                    }
-                ],
-                product: {
-                    type: Number,
-                    ref: 'Product'
-                }
-            }
-        ],
-        default: []
-    },
-    twoFactorAuth: {
-        secret: {
-            type: String,
-            select: false,
-        },
-        tempSecret: { 
-            type: String,
-            select: false,
-        },
-        enabled: {
-            type: Boolean,
-            default: false,
+const { isAuthUser, authRoles } = require('../middleware/auth');
+// const upload = require('../app');
+const multer = require('multer');
+// const { contactUs } = require('../controllers/contact');
+const { subscriber } = require('../controllers/subscribe');
+
+// Configure Multer for file uploads
+const upload = multer({
+    storage: multer.memoryStorage(),
+    fileFilter: (req, file, cb) => {
+        if (
+            file.mimetype === 'image/png' ||
+            file.mimetype === 'image/jpg' ||
+            file.mimetype === 'image/jpeg'
+        ) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type.'));
         }
-    },
-    stripeCustomerId: String,
-    role: {
-        type: String,
-        default: 'user'
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    resetPasswordToken: String,
-    resetPasswordExpire: Date
-});
-
-userSchema.pre('save', async function (next) {
-    if (!this.isModified('password')) {
-        next();
     }
-
-    this.password = await bcrypt.hash(this.password, 12);
 });
 
-// jwt token
-userSchema.methods.getJWTToken = function () {
-    return jwt.sign(
-        {
-            id: this._id
-        },
-        process.env.JWT_SECRET_KEY,
-        {
-            expiresIn: process.env.JWT_EXPIRES_IN
-        }
-    );
-};
+const router = express.Router();
 
-// compare Password
-userSchema.methods.comparePassword = async function (enteredPassword) {
-    return await bcrypt.compare(enteredPassword, this.password);
-};
+router.route('/register').post(upload.single('image'), registerUser);
 
-// generating password reset token
-userSchema.methods.getResetPasswordToken = function () {
-    // generating token
-    const resetToken = crypto.randomBytes(20).toString('hex');
+router.route('/login').post(loginUser);
 
-    // hashing and add to userSchema
-    this.resetPasswordToken = crypto
-        .createHash('sha256')
-        .update(resetToken)
-        .digest('hex');
-    this.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
+router.route('/password/forgot').post(forgotPassword);
 
-    return resetToken;
-};
+router.route('/password/reset/:token').put(resetPassword);
 
-module.exports = mongoose.model('User', userSchema);
+router.route('/logout').get(logout);
+
+router.route('/me').get(isAuthUser, getUserDetails);
+
+router.route('/password/update').put(isAuthUser, updatePassword);
+
+router.route('/admin/users').get(isAuthUser, authRoles('admin'), getAllUsers);
+
+router
+    .route('/admin/user/:id')
+    .get(isAuthUser, authRoles('admin'), getSingleUser)
+    .put(isAuthUser, authRoles('admin'), updateUserRole);
+
+// router.route('/contact-us').post(contactUs);
+
+router.route('/subscribe').post(subscriber);
+
+router.route('/auth/google').post(googleLogin);
+
+module.exports = router;

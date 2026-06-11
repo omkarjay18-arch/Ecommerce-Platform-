@@ -1,26 +1,10 @@
-const mongoose = require('mongoose');
+const express = require('express');
+const router = express.Router();
 
-mongoose.set('strictQuery', false);
+const { generateCoupon, getAllCoupons } = require('../controllers/coupon');
+const { authRoles, isAuthUser } = require('../middleware/auth');
 
-const couponSchema = new mongoose.Schema({
-    _id: String,
-    code: {
-        type: String,
-        required: true,
-        unique: true
-    },
-    discount: {
-        type: Number,
-        required: true
-    },
-    expiresAt: {
-        type: Date,
-        required: true
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    }
-});
+router.post('/coupon', isAuthUser, authRoles('admin'), generateCoupon);
+router.get('/coupons/all', getAllCoupons);
 
-module.exports = mongoose.model('Coupon', couponSchema);
+module.exports = router;

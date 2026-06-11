@@ -1,23 +1,13 @@
-exports.processPayment = async (req, res, next) => {
-    try {
-        const mockClientSecret = `mock_secret_${Math.random().toString(36).substring(2, 15)}`;
+const express = require('express');
+const {
+    processPayment,
+    sendStripeApiKey,
+} = require('../controllers/payment');
+const router = express.Router();
+const { isAuthUser } = require('../middleware/auth');
 
-        res.status(200).json({
-            success: true,
-            clientSecret: mockClientSecret,
-            message: 'Mock Payment Successfully processed'
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Mock Payment failed'
-        });
-    }
-};
+router.route('/payment').post(isAuthUser, processPayment);
 
-exports.sendStripeApiKey = async (req, res, next) => {
-    res.status(200).json({
-        stripeApiKey: 'MOCK_API_KEY_1234567890'
-    });
-};
+router.route('/stripeapikey').get(isAuthUser, sendStripeApiKey);
+
+module.exports = router;
