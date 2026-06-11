@@ -130,7 +130,7 @@ A full-stack e-commerce application built with the MERN stack (MongoDB, Express.
 
 1. **Clone the repository**
    ```bash
-   git clone git
+   git clone https://github.com/omkarjay18-arch/MERN-Ecommerce-Platform
    cd MERN-Ecommerce
    ```
 
@@ -360,7 +360,7 @@ The application can be deployed on any platform supporting Node.js:
 ## 👨‍💻 Author
 
 ** Omkar Jaybhaye **
-- GitHub: [@Omkar jaybhaye](https://github.com/omkarjay18-arch/MERN-Ecommerce-Platform.git)
+- GitHub: [@Omkar jaybhaye](https://github.com/omkarjay18-arch/MERN-Ecommerce-Platform)
 
 ## 🙏 Acknowledgments
 
