@@ -1,38 +1,18 @@
-const Subscribe = require('../models/subscribe');
-const Snowflake = require('@theinternetfolks/snowflake');
+const mongoose = require('mongoose');
 
-const timestamp = Date.now();
-const timestampInSeconds = Math.floor(timestamp / 1000);
+mongoose.set('strictQuery', false);
 
-exports.subscriber = async (req, res, next) => {
-    try {
-            const { email } = req.body;
-
-            const existingSubscriber = await Subscribe.findOne({ email });
-
-            if (existingSubscriber) {
-                return res
-                    .status(400)
-                    .json({ error: 'Email address is already subscribed.' });
-            }
-
-            const newSubscriber = await Subscribe.create({
-                _id: Snowflake.Snowflake.generate({
-                    timestamp: timestampInSeconds
-                }),
-                email
-            });
-            await newSubscriber.save();
-
-            res.status(200).json({
-                success: true,
-                message: "You've successfully subscribed to our newsletter",
-                newSubscriber
-            });
-        } catch (error) {
-        res.status(500).json({
-            success: false,
-            message : error.message
-        })
+const subscriber = new mongoose.Schema({
+    _id: String,
+    email: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
     }
-}
+});
+
+module.exports = mongoose.model('Subscriber', subscriber);

@@ -1,377 +1,162 @@
-const Order = require('../models/order');
-const Product = require('../models/product');
-const sendEmail = require('../utils/sendEmail');
-const User = require('../models/user');
-const Coupon = require('../models/coupon');
-const nodeCache = require('node-cache');
-const NodeCache = new nodeCache();
-const Reorder = require('../models/reorder');
-const Snowflake = require('@theinternetfolks/snowflake');
+const mongoose = require('mongoose');
 
-const timestamp = Date.now();
-const timestampInSeconds = Math.floor(timestamp / 1000);
+mongoose.set('strictQuery', false);
 
-// create new order
-exports.newOrder = async (req, res, next) => {
-    try {
-        const user = await User.findById(req.user._id);
-
-        const {
-            shippingInfo,
-            orderItems,
-            paymentInfo,
-            itemsPrice,
-            taxPrice,
-            shippingPrice,
-            totalPrice,
-            couponCode
-        } = req.body;
-
-        const coupon = await Coupon.findOne({ code: couponCode });
-
-        let discountedTotalPrice = totalPrice;
-        if (coupon) {
-            if (
-                totalPrice >= coupon.minOrderAmount &&
-                totalPrice <= coupon.maxOrderAmount
-            ) {
-                discountedTotalPrice =
-                    totalPrice - (totalPrice * coupon.discountPercent) / 100;
-            }
+const orderSchema = new mongoose.Schema({
+    _id: String,
+    shippingInfo: {
+        address: {
+            type: String,
+            required: true
+        },
+        city: {
+            type: String,
+            required: true
+        },
+        state: {
+            type: String,
+            required: true
+        },
+        country: {
+            type: String,
+            required: true
+        },
+        pinCode: {
+            type: Number,
+            required: true
+        },
+        phoneNumber: {
+            type: Number,
+            required: true
         }
-
-        // Modify the orderItems to include the image data
-        const orderItemsWithImages = await Promise.all(
-            orderItems.map(async item => {
-                const product = await Product.findById(item.product);
-                if (product) {
-                    return {
-                        name: item.name,
-                        price: item.price,
-                        quantity: item.quantity,
-                        images: product.images, // Include the images from the product
-                        product: item.product
-                    };
+    },
+    orderItems: [
+        {
+            name: {
+                type: String,
+                required: true
+            },
+            price: {
+                type: Number,
+                required: true
+            },
+            quantity: {
+                type: Number,
+                required: true
+            },
+            images: [
+                {
+                    url: {
+                        type: String,
+                        required: true
+                    }
                 }
-            })
-        );
-
-        const order = await Order.create({
-            _id: Snowflake.Snowflake.generate({
-                timestamp: timestampInSeconds
-            }),
-            shippingInfo,
-            orderItems: orderItemsWithImages,
-            paymentInfo,
-            itemsPrice,
-            taxPrice,
-            shippingPrice,
-            totalPrice: discountedTotalPrice,
-            paidAt: Date.now(),
-            user: req.user._id,
-            couponUsed: coupon ? true : false,
-            couponCode: couponCode
-        });
-
-        const randomDays = Math.floor(Math.random() * 8); // Generate random number between 0 and 7
-        const currentDate = new Date();
-        const estimatedDeliveryDate = new Date(
-            currentDate.getFullYear(),
-            currentDate.getMonth(),
-            currentDate.getDate() + randomDays
-        ); // Add random days
-
-        const imageUrl = order.orderItems.image;
-
-        const emailMessage = `<html>
-    <body>
-        <p>Hello ${user.name}!</p>
-        <p>Your order📦 has been placed successfully. Your estimated Date of delivery is ${estimatedDeliveryDate.toDateString()}.</p>
-        <img src="${imageUrl}" alt="Ordered Items">
-        <p>Thank you for ordering. For more please visit our website <a href="http://www.orderplanning.com">www.orderplanning.com</a>.</p>
-        <p>Here's the image of your ordered items:</p>
-        <p>Happy Shopping.😊</p>
-    </body>
-    </html>`;
-
-        await sendEmail({
-            email: user.email,
-            subject: `Your Order📦 has been placed successfully`,
-            html: emailMessage
-        });
-
-        res.status(200).json({
-            success: true,
-            order
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
-
-// get single order
-exports.getSingleOrder = async (req, res, next) => {
-    let order;
-    if (NodeCache.has('order')) {
-        order = JSON.parse(JSON.stringify(NodeCache.get('order')));
-    } else {
-        order = await Order.findById(req.params.id).populate(
-            'user',
-            'name email'
-        );
-        NodeCache.set('order', JSON.stringify(order));
-    }
-
-    if (!order) {
-        return res.status(404).json({
-            success: false,
-            message: 'Order📦 not found with this Id'
-        });
-    }
-
-    res.status(200).json({
-        success: true,
-        order
-    });
-};
-
-// get logged in user order
-exports.myOrders = async (req, res, next) => {
-    let orders;
-
-    if (NodeCache.has('orders')) {
-        orders = JSON.parse(JSON.stringify(NodeCache.get('orders')));
-    } else {
-        orders = await Order.find({
-            user: req.user._id
-        });
-        NodeCache.set('orders', JSON.stringify(orders));
-    }
-
-    res.status(200).json({
-        success: true,
-        orders
-    });
-};
-
-exports.getAllOrders = async (req, res, next) => {
-    try {
-        let orders;
-        let totalAmount = 0;
-
-        // 1. Check if it's in the cache
-        if (NodeCache.has('orders')) {
-            // Retrieve the array exactly as it was stored
-            // If you are using Redis instead of node-cache, change this line to: 
-            // orders = JSON.parse(NodeCache.get('orders'));
-            orders = NodeCache.get('orders'); 
-        } else {
-            // 2. If not in cache, get from DB
-            orders = await Order.find();
-            
-            // Save the raw array to the cache
-            NodeCache.set('orders', orders);
-        }
-
-        // 3. Calculate total amount safely
-        if (orders && Array.isArray(orders)) {
-            orders.forEach(order => {
-                totalAmount += order.totalPrice;
-            });
-        } else {
-            // Safety fallback if cache gets corrupted
-            orders = []; 
-        }
-
-        res.status(200).json({
-            success: true,
-            totalAmount,
-            orders
-        });
-        
-    } catch (error) {
-        console.error("Error fetching all orders:", error);
-        res.status(500).json({ success: false, message: "Server Error" });
-    }
-};
-
-// update order status --admin
-exports.updateOrder = async (req, res, next) => {
-    try {
-        const orderId = req.params.id;
-        const order = await getOrderFromCache(orderId);
-
-        const user = await User.findById(req.user._id);
-
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order📦 not found with this Id'
-            });
-        }
-
-        if (order.orderStatus === 'Delivered') {
-            return res.status(400).json({
-                success: false,
-                message: 'You have already delivered this order'
-            });
-        }
-
-        if (req.body.status === 'Shipped') {
-            order.orderItems.forEach(async o => {
-                await updateStock(o.product, o.quantity);
-            });
-        }
-
-        order.orderStatus = req.body.status;
-
-        if (req.body.status === 'Delivered') {
-            order.DeliveredAt = Date.now();
-            order.estimatedDeliveryDate = null;
-        }
-
-        // Save the updated order
-        await order.save({ validateBeforeSave: false });
-
-        // Clear the cache for the updated order
-        NodeCache.del(orderId);
-
-        const randomDays = Math.floor(Math.random() * 8); // Generate random number between 0 and 7
-        const currentDate = new Date();
-        const estimatedDeliveryDate = new Date(
-            currentDate.getFullYear(),
-            currentDate.getMonth(),
-            currentDate.getDate() + randomDays
-        ); // Add random days
-
-        const imageUrl = order.orderItems.image;
-
-        const emailMessage = `<html>
-    <body>
-        <p>Hello ${user.name}!</p>
-        <p>Your order📦 ${order._id} has been ${
-            order.orderStatus
-        }. Your estimated Date of delivery is ${estimatedDeliveryDate.toDateString()}.</p>
-        <img src="${imageUrl}" alt="Ordered Items">
-        <p>Thank you for ordering. For more please visit our website <a href="http://www.orderplanning.com">www.orderplanning.com</a>.</p>
-        <p>Here's the image of your ordered items:</p>
-        <p>Happy Shopping.😊</p>
-    </body>
-    </html>`;
-        await sendEmail({
-            email: user.email,
-            subject: `Your Order📦 Status Update: ${order.orderStatus}`,
-            html: emailMessage
-        });
-
-        res.status(200).json({
-            success: true,
-            message: 'WhatsApp & Email sent successfully',
-            order
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Internal Server Error'
-        });
-    }
-};
-
-async function getOrderFromCache(orderId) {
-    // Check if order data is in the cache
-    let order = NodeCache.get(orderId);
-
-    // If not in the cache, fetch from the database
-    if (!order) {
-        order = await Order.findById(orderId);
-
-        // Cache the order data for future use
-        if (order) {
-            NodeCache.set(orderId, order);
-        }
-    }
-
-    return order;
-}
-
-async function updateStock(id, quantity) {
-    const product = await Product.findById(id);
-    product.Stock -= quantity;
-    await product.save({ validateBeforeSave: false });
-}
-
-// delete Order -- Admin
-exports.deleteOrder = async (req, res, next) => {
-    const order = await Order.findById(req.params.id);
-
-    if (!order) {
-        return res.status(404).json({
-            success: false,
-            message: 'Order📦 not found with this Id'
-        });
-    }
-
-    await order.remove();
-
-    res.status(200).json({
-        success: true,
-        message: 'Order📦 deleted successfully'
-    });
-};
-
-exports.reorder = async (req, res, next) => {
-    try {
-        const { originalOrderId } = req.body;
-
-        const originalOrder = await Order.findById(originalOrderId);
-
-        if (!originalOrder) {
-            return res.status(404).json({
-                success: false,
-                message: 'Original order not found'
-            });
-        }
-
-        const newOrder = new Order({
-            shippingInfo: originalOrder.shippingInfo,
-            orderItems: originalOrder.orderItems,
-            paymentInfo: originalOrder.paymentInfo,
-            itemsPrice: originalOrder.itemsPrice,
-            taxPrice: originalOrder.taxPrice,
-            shippingPrice: originalOrder.shippingPrice,
-            totalPrice: originalOrder.totalPrice
-        });
-
-        await newOrder.save();
-
-        const reorder = new Reorder({
-            originalOrder: originalOrder._id,
-            newOrderDetails: {
-                shippingInfo: newOrder.shippingInfo,
-                orderItems: newOrder.orderItems,
-                paymentInfo: newOrder.paymentInfo,
-                itemsPrice: newOrder.itemsPrice,
-                taxPrice: newOrder.taxPrice,
-                shippingPrice: newOrder.shippingPrice,
-                totalPrice: newOrder.totalPrice
+            ],
+            product: {
+                type: Number,
+                ref: 'Product',
+                required: true
             }
-        });
+        }
+    ],
+    user: {
+        type: Number,
+        ref: 'User',
+        required: true
+    },
+    paymentInfo: {
+        id: {
+            type: String,
+            required: true
+        },
+        status: {
+            type: String,
+            required: true
+        }
+    },
+    paidAt: {
+        type: Date,
+        required: true
+    },
+    itemsPrice: {
+        type: Number,
+        default: 0,
+        required: true
+    },
+    shippingPrice: {
+        type: Number,
+        default: 0,
+        required: true
+    },
+    totalPrice: {
+        type: Number,
+        default: 0,
+        required: true
+    },
+    orderStatus: {
+        type: String,
+        required: true,
+        default: 'Processing'
+    },
+    DeliveredAt: Date,
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    return: [
+        {
+            type: Number,
+            ref: 'Return'
+        }
+    ],
+    refund: [
+        {
+            type: Number,
+            ref: 'Refund',
+            required: true
+        }
+    ],
 
-        await reorder.save();
-
-        res.status(200).json({
-            success: true,
-            newOrder
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Internal Server Error'
-        });
+    // Refund details
+    isReturned: {
+        type: Boolean,
+        default: false
+    },
+    returnRequestedAt: {
+        type: Date
+    },
+    isRefunded: {
+        type: Boolean,
+        default: false
+    },
+    refundRequestedAt: {
+        type: Date
+    },
+    refundStatus: {
+        type: String,
+        default: 'Not Requested'
+    },
+    refundInfo: {
+        id: String,
+        amount: Number,
+        status: String,
+        createdAt: Date
+    },
+    refundedAt: {
+        type: Date
+    },
+    // Coupon details
+    couponUsed: {
+        type: Boolean,
+        default: false
+    },
+    couponCode: {
+        type: String
+    },
+    discountedAmount: {
+        type: Number,
+        default: 0
     }
-};
+});
+
+module.exports = mongoose.model('Order', orderSchema);

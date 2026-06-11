@@ -1,459 +1,147 @@
-// const { s3 } = require('../app');
-const User = require('../models/user');
-const sendEmail = require('../utils/sendEmail');
-const crypto = require('crypto');
+const mongoose = require('mongoose');
+const validator = require('validator');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-require('dotenv').config({ path: 'backend/config/config.env' });
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { fromEnv } = require('@aws-sdk/credential-provider-env');
-const Snowflake = require('@theinternetfolks/snowflake');
-const { OAuth2Client } = require('google-auth-library');
-const validator = require('validator'); 
-const ejs = require('ejs');
-const path = require('path');
-const speakeasy = require('speakeasy');
+const crypto = require('crypto');
+mongoose.set('strictQuery', false);
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-const timestamp = Date.now();
-const timestampInSeconds = Math.floor(timestamp / 1000);
-
-// register user
-exports.registerUser = async (req, res, next) => {
-    try {
-        const { name, whatsappNumber, email, password } = req.body;
-        const file = req.file;
-
-        if (!file) {
-            res.status(400).send('No file uploaded.');
-            return;
-        }
-
-        const s3 = new S3Client({
-            region: process.env.AWS_BUCKET_REGION,
-            credentials: fromEnv()
-        });
-
-        // Define the upload parameters
-        const uploadParams = {
-            Bucket: process.env.AWS_BUCKET_NAME,
-            Key: file.originalname, 
-            Body: file.buffer
-        };
-
-        // Upload the file to S3
-        const uploadCommand = new PutObjectCommand(uploadParams);
-        await s3.send(uploadCommand);
-
-        const cacheBuster = Date.now();
-        const avatarUrl = `https://${uploadParams.Bucket}.s3.${s3.region}.amazonaws.com/${uploadParams.Key}?cacheBuster=${cacheBuster}`;
-
-        console.log('✅ Image uploaded successfully:', avatarUrl);
-
-        const customer = await stripe.customers.create({
-            email,
-            source: 'tok_visa'
-        });
-
-        const user = await User.create({
-            _id: Snowflake.Snowflake.generate({
-                timestamp: timestampInSeconds
-            }),
-            name,
-            whatsappNumber,
-            email,
-            password,
-            avatar: avatarUrl,
-            stripeCustomerId: customer.id
-        });
-
-        let token = jwt.sign(
+const userSchema = new mongoose.Schema({
+    _id: String,
+    name: {
+        type: String,
+        required: [true, 'Please Enter Your Name'],
+        maxLength: [30, 'Name cannot exceed 30 characters'],
+        minLength: [2, 'Name must be atleast of 2 characters long']
+    },
+    email: {
+        type: String,
+        required: [true, 'Please Enter Your Email'],
+        unique: true,
+        validate: [validator.isEmail, 'Please Enter a valid Email']
+    },
+    password: {
+        type: String,
+        minLength: [6, 'Password must be atleast of 6 characters long'],
+        select: false
+    },
+    whatsappNumber: {
+        type: Number,
+        unique: [true, 'This number is already in use by another account!']
+    },
+    authProvider: {
+        type: String,
+        enum: ['local', 'google'],
+        default: 'local'
+    },
+    avatar: {
+        type: String,
+        required: true
+    },
+    wishlist: {
+        type: [
             {
-                userId: user._id,
-                name: user.name,
-                email: user.email
-            },
-            process.env.JWT_SECRET_KEY
-        );
-
-        const options = {
-            expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-            httpOnly: true
-        };
-
-        const finalToken = user.getJWTToken();
-        res.status(201).cookie('token', token, options).json({
-            success: true,
-            user,
-            token: finalToken
-        });
-    } catch (err) {
-        console.error('⚠️ Error:', err);
-        res.status(500).json({
-            success: false,
-            message: '⚠️ Error: ' + err.message
-        });
-    }
-};
-
-// Login User
-exports.loginUser = async (req, res, next) => {
-    try {
-        const { email, password } = req.body;
-
-        // checking if user has given email and password both
-        if (!email || !password) {
-            return res.status(400).json({
-                success: false,
-                message: 'Please Enter Email and Password'
-            });
+                _id: String,
+                name: {
+                    type: String,
+                    required: [true, 'Please Enter product Name'],
+                    trim: true
+                },
+                description: {
+                    type: String,
+                    required: [true, 'Please Enter product description']
+                },
+                price: {
+                    type: Number,
+                    required: [true, 'Please Enter product price'],
+                    maxLength: [6, "Price can't exceed 6 figures"]
+                },
+                ratings: {
+                    type: Number,
+                    default: 0
+                },
+                images: [
+                    {
+                        _id: String,
+                        url: {
+                            type: String,
+                            required: true
+                        }
+                    }
+                ],
+                product: {
+                    type: Number,
+                    ref: 'Product'
+                }
+            }
+        ],
+        default: []
+    },
+    twoFactorAuth: {
+        secret: {
+            type: String,
+            select: false,
+        },
+        tempSecret: { 
+            type: String,
+            select: false,
+        },
+        enabled: {
+            type: Boolean,
+            default: false,
         }
+    },
+    stripeCustomerId: String,
+    role: {
+        type: String,
+        default: 'user'
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date
+});
 
-        const user = await User.findOne({ email }).select('+password +twoFactorAuth.enabled');
-        if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid Email or Password'
-            });
-        }
-
-        if (user.twoFactorAuth.enabled) {
-            return res.status(200).json({
-                success: true,
-                twoFactorRequired: true,
-                userId: user._id,
-            });
-        }
-
-        const isPasswordMatched = await user.comparePassword(password);
-        if (!isPasswordMatched) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid Email or Password'
-            });
-        }
-
-        let token = jwt.sign(
-            {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                avatar: user.avatar
-            },
-            process.env.JWT_SECRET_KEY
-        );
-
-        const options = {
-            expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-            httpOnly: true
-        };
-
-        res.status(201).cookie('token', token, options).json({
-            success: true,
-            user
-        });
-    } catch (err) {
-        res.status(500).json({
-            success: false,
-            message: err.message
-        });
-    }
-};
-
-// logout User
-exports.logout = async (req, res, next) => {
-    res.cookie('token', null, {
-        expires: new Date(Date.now()),
-        httpOnly: true
-    });
-
-    res.status(200).json({
-        success: true,
-        message: 'User logged out'
-    });
-};
-
-// forgot password
-exports.forgotPassword = async (req, res, next) => {
-    const user = await User.findOne({ email: req.body.email });
-
-    if (!user) {
-        return res.status(404).json({
-            success: false,
-            message: 'User not found'
-        });
+userSchema.pre('save', async function (next) {
+    if (!this.isModified('password')) {
+        next();
     }
 
-    // get reset password token
-    const resetToken = user.getResetPasswordToken();
+    this.password = await bcrypt.hash(this.password, 12);
+});
 
-    await user.save({ validateBeforeSave: false });
-
-    const resetPasswordURL = `${process.env.FRONTEND_URL}/password/reset/${resetToken}`;
-
-    try {
-        await sendEmail({
-            email: user.email,
-            subject: `Password Recovery - Ecommerce`,
-            html: `Your password reset token is:- \n\n ${resetPasswordURL} \n\n If you have not requested this email then, please ignore it.`
-        });
-
-        const message = `Your password reset token is:- \n\n ${resetPasswordURL} \n\n If you have not requested this email then, please ignore it.`;
-
-        console.log('message', message);
-
-        res.status(200).json({
-            success: true,
-            message: `Email sent to ${user.email} successfully.`
-        });
-    } catch (error) {
-        user.resetPasswordToken = undefined;
-        user.resetPasswordExpire = undefined;
-
-        await user.save({ validateBeforeSave: false });
-
-        return res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
-
-// reset password
-exports.resetPassword = async (req, res, next) => {
-    try {
-        const resetPasswordToken = crypto
-            .createHash('sha256')
-            .update(req.params.token)
-            .digest('hex');
-
-        const user = await User.findOne({
-            resetPasswordToken,
-            resetPasswordExpire: { $gt: Date.now() }
-        });
-
-        if (!user) {
-            return res.status(400).json({
-                success: false,
-                message: 'Reset Password Token is invalid or has expired!'
-            });
+// jwt token
+userSchema.methods.getJWTToken = function () {
+    return jwt.sign(
+        {
+            id: this._id
+        },
+        process.env.JWT_SECRET_KEY,
+        {
+            expiresIn: process.env.JWT_EXPIRES_IN
         }
-
-        if (req.body.password !== req.body.confirmPassword) {
-            return res.status(400).json({
-                success: false,
-                message: 'Passwords do not match!'
-            });
-        }
-
-        user.password = req.body.password;
-        user.resetPasswordToken = undefined;
-        user.resetPasswordExpire = undefined;
-
-        await user.save();
-
-        // Generate a new JWT token
-        let token = jwt.sign(
-            {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                avatar: user.avatar
-            },
-            process.env.JWT_SECRET_KEY
-        );
-
-        const options = {
-            expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-            httpOnly: true
-        };
-
-        res.status(200).cookie('token', token, options).json({
-            success: true,
-            user
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Internal Server Error'
-        });
-    }
+    );
 };
 
-// get User details
-exports.getUserDetails = async (req, res, next) => {
-    const user = await User.findById(req.user._id);
-
-    res.status(200).json({
-        success: true,
-        user
-    });
+// compare Password
+userSchema.methods.comparePassword = async function (enteredPassword) {
+    return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// update User password
-exports.updatePassword = async (req, res, next) => {
-    try {
-        const user = await User.findById(req.user._id);
+// generating password reset token
+userSchema.methods.getResetPasswordToken = function () {
+    // generating token
+    const resetToken = crypto.randomBytes(20).toString('hex');
 
-        const isPasswordMatched = await user.comparePassword(
-            req.body.oldPassword
-        );
+    // hashing and add to userSchema
+    this.resetPasswordToken = crypto
+        .createHash('sha256')
+        .update(resetToken)
+        .digest('hex');
+    this.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
 
-        if (!isPasswordMatched) {
-            return res.status(400).json({
-                success: false,
-                message: 'Old Password is incorrect'
-            });
-        }
-
-        if (req.body.newPassword !== req.body.confirmPassword) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password does not match'
-            });
-        }
-
-        user.password = req.body.newPassword;
-
-        await user.save();
-
-        let token = jwt.sign(
-            {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                avatar: user.avatar
-            },
-            process.env.JWT_SECRET_KEY
-        );
-
-        const options = {
-            expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-            httpOnly: true
-        };
-
-        res.status(200).cookie('token', token, options).json({
-            success: true,
-            user
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Internal Server Error'
-        });
-    }
+    return resetToken;
 };
 
-// get all users --admin
-exports.getAllUsers = async (req, res, next) => {
-    const users = await User.find();
-
-    res.status(200).json({
-        success: true,
-        users
-    });
-};
-
-// get single user --admin
-exports.getSingleUser = async (req, res, next) => {
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-        return res.status(400).json({
-            success: false,
-            message: `User does not exist with Id: ${req.params.id}`
-        });
-    }
-
-    res.status(200).json({
-        success: true,
-        user
-    });
-};
-
-// update User Role --admin
-exports.updateUserRole = async (req, res, next) => {
-    try {
-        const newUserData = {
-            name: req.body.name,
-            email: req.body.email,
-            role: req.body.role
-        };
-        const user = await User.findByIdAndUpdate(req.params.id, newUserData, {
-            new: true,
-            runValidators: true,
-            useFindAndModify: false
-        });
-
-        res.status(200).json({
-            success: true,
-            user
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-};
-
-exports.googleLogin = async (req, res, next) => {
-    try {
-        const { idToken } = req.body;
-
-        if (!idToken) {
-            return res.status(400).json({
-                success: false,
-                message: 'Google ID token is required'
-            });
-        }
-
-        const ticket = await client.verifyIdToken({
-            idToken,
-            audience: process.env.GOOGLE_CLIENT_ID
-        });
-
-        const payload = ticket.getPayload();
-        const { email, name, picture, sub: googleId } = payload;
-
-        let user = await User.findOne({ email });
-
-        if (!user) {
-            user = await User.create({
-                _id: Snowflake.Snowflake.generate({ timestamp: timestampInSeconds }),
-                name,
-                email,
-                avatar: picture,
-                authProvider: 'google',
-                googleId
-            });
-        }
-
-        let token = jwt.sign(
-            { id: user._id },
-            process.env.JWT_SECRET_KEY,
-            { expiresIn: '90d' }
-        );
-
-        const options = {
-            expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-            secure: process.env.NODE_ENV === 'production',
-            httpOnly: true,
-            sameSite: 'lax'
-        };
-
-        res.status(200).cookie('token', token, options).json({
-            success: true,
-            user,
-            token
-        });
-    } catch (error) {
-        console.error('🔐 Google login error: ', error.message);
-        res.status(401).json({
-            success: false,
-            message: 'Invalid or expired Google Token'
-        });
-    }
-};
+module.exports = mongoose.model('User', userSchema);
