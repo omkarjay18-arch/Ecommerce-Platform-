@@ -130,7 +130,7 @@ A full-stack e-commerce application built with the MERN stack (MongoDB, Express.
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/AnantDuhan/MERN-Ecommerce.git
+   git clone git
    cd MERN-Ecommerce
    ```
 
@@ -356,15 +356,11 @@ The application can be deployed on any platform supporting Node.js:
 - [ ] Advanced analytics dashboard
 - [ ] Social media integration
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 👨‍💻 Author
 
-**Anant Duhan**
-- GitHub: [@AnantDuhan](https://github.com/AnantDuhan)
-- LinkedIn: [@AnantDuhan](https://linkedin.com/in/AnantDuhan)
+** Omkar Jaybhaye **
+- GitHub: [@Omkar jaybhaye](https://github.com/omkarjay18-arch/MERN-Ecommerce-Platform.git)
 
 ## 🙏 Acknowledgments
 
@@ -382,7 +378,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Some basic git commands are:
 
 ```git
-$ git clone https://github.com/AnantDuhan/MERN-Ecommerce.git
+$ git clone https://github.com/omkarjay18-arch/MERN-Ecommerce-Platform.git
 $ cd MERN-Ecommerce
 $ npm install
 ```
