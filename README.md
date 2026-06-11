@@ -360,7 +360,7 @@ The application can be deployed on any platform supporting Node.js:
 ## 👨‍💻 Author
 
 ** Omkar Jaybhaye **
-- GitHub: [@Omkar jaybhaye](https://github.com/omkarjay18-arch/MERN-Ecommerce-Platform)
+- GitHub:(https://github.com/omkarjay18-arch/MERN-Ecommerce-Platform)
 
 ## 🙏 Acknowledgments
 
